@@ -1,0 +1,12 @@
+# Wedit Makefile for project HELLO
+CFLAGS= -g2
+OBJS=\
+        pproxy.obj
+
+TEST.exe:       $(OBJS)
+        lcclnk  -o pproxy.exe $(OBJS)
+
+# Build HELLO.C
+PPROXY.obj: pproxy.c
+        lcc $(CFLAGS) pproxy.c
+
