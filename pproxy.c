@@ -19,7 +19,7 @@
 #include <errno.h>
 #include <stdarg.h>
 
-SOCKET establish_port(SOCKET local_port) {
+SOCKET establish_port(int local_addr, SOCKET local_port) {
 	SOCKET fd;
 	struct sockaddr_in sa;
 
@@ -27,6 +27,7 @@ SOCKET establish_port(SOCKET local_port) {
 	memset(&sa,0,sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(local_port);
+	sa.sin_addr.s_addr = local_addr;
 	if (bind(fd,&sa,sizeof(sa)) == -1) {
 		perror("bind");
 		return -1;
@@ -64,7 +65,8 @@ struct connection_info * get_new_connection( SOCKET fd, int remote_addr, int rem
 		perror("accept");
 		return NULL;
 	}
-	
+    printf("Accept for %08x\n",sa.sin_addr.s_addr);
+
 	rfd = socket(AF_INET, SOCK_STREAM, 6);
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(remote_port);
@@ -87,7 +89,7 @@ struct connection_info * get_new_connection( SOCKET fd, int remote_addr, int rem
 }
 
 struct connection_info * destroy_connection( struct connection_info * head, struct connection_info * conn) {
-	struct connection_info *prev, *p;
+    struct connection_info *prev, *p, *next;
 
 	closesocket(conn->lfd);
 	closesocket(conn->rfd);
@@ -95,23 +97,25 @@ struct connection_info * destroy_connection( struct connection_info * head, stru
 	p=head;
 	prev=NULL;
 	while (p) {
+        next=p->next;
 		if (p=conn) {
 			if (prev) {
 				prev->next = p->next;
 			} else {
 				head = p->next;
 			}
-			free(p);
+            free(p);
+            return head;
 		}
 		prev=p;
-		p=p->next;
+        p=next;
 	}
 	return head;
 }
 
 int do_connection_loop( SOCKET fd, int remote_addr, int remote_port ) {
 	fd_set fdreads, fdwrites;
-	struct connection_info *head, *p;
+    struct connection_info *head, *p, *next;
 	int maxfd;
 	int maxbytes;
 	int i;
@@ -155,14 +159,17 @@ int do_connection_loop( SOCKET fd, int remote_addr, int remote_port ) {
 			}
 		}
 		
-		p = head;
-		while (p) {
+        next = head;
+        while (next) {
+            p = next;
+            next = p->next;
 			if (FD_ISSET(p->lfd,&fdreads)) {
 				maxbytes = BUFSIZE-1 - p->lbufw;
 				if (maxbytes >0) {
 					i = recv(p->lfd,&p->lbuf[p->lbufw],maxbytes,0);
 					if (i < 1) {
 						head =destroy_connection(head,p);
+                        continue;
 					}
 					p->lbufw += i;
 				}
@@ -173,6 +180,7 @@ int do_connection_loop( SOCKET fd, int remote_addr, int remote_port ) {
 					i = send(p->rfd,&p->lbuf[p->lbufr],maxbytes,0);
 					if (i < maxbytes) {
 						head =destroy_connection(head,p);
+                        continue;
 					}
 					p->lbufr += i;
 					if (p->lbufr == p->lbufw) {
@@ -186,8 +194,9 @@ int do_connection_loop( SOCKET fd, int remote_addr, int remote_port ) {
 					i = recv(p->rfd,&p->rbuf[p->rbufw],maxbytes,0);
 					if (i < 1) {
 						head =destroy_connection(head,p);
-					}
-					p->rbufw += i;
+                        continue;
+                    }
+                    p->rbufw += i;
 				}
 			}
 			if (FD_ISSET(p->lfd,&fdwrites)) {
@@ -196,6 +205,7 @@ int do_connection_loop( SOCKET fd, int remote_addr, int remote_port ) {
 					i = send(p->lfd,&p->rbuf[p->rbufr],maxbytes,0);
 					if (i < maxbytes) {
 						head =destroy_connection(head,p);
+                        continue;
 					}
 					p->rbufr += i;
 					if (p->rbufr == p->rbufw) {
@@ -203,9 +213,7 @@ int do_connection_loop( SOCKET fd, int remote_addr, int remote_port ) {
 					}
 				}
 			}
-
-			p=p->next;
-		}
+        }
 	}
 	/* NOT REACHED */
 	return 0;
@@ -217,6 +225,8 @@ int main(int argc, char **argv) {
 	int remote_port;
 	char *remote_host;
 	int remote_addr;
+	char *local_host;
+	int local_addr;
 	struct hostent *he;
 
 #ifdef __LCC__
@@ -228,14 +238,22 @@ int main(int argc, char **argv) {
 	}
 #endif
 
-	if (argc < 3) {
-		printf("Usage: %s <local_port> <remote_host> <remote_port>\n",argv[0]);
+	if (argc < 4) {
+		printf("Usage: %s <local_addr> <local_port> <remote_host> <remote_port>\n",argv[0]);
 		return -1;
 	}
 
-	local_port = atoi(argv[1]);
-	remote_port = atoi(argv[3]);
-	remote_host = argv[2];
+	local_host = argv[1];
+	local_port = atoi(argv[2]);
+	remote_host = argv[3];
+	remote_port = atoi(argv[4]);
+
+	he = gethostbyname(local_host);
+	if (he == NULL) {
+		printf("local Host %s not found\n",remote_host);
+		return -1;
+	}
+	memcpy(&local_addr,he->h_addr_list[0],4);
 
 	he = gethostbyname(remote_host);
 	if (he == NULL) {
@@ -243,8 +261,8 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 	memcpy(&remote_addr,he->h_addr_list[0],4);
-	
-	fd = establish_port(local_port);
+
+	fd = establish_port(local_addr,local_port);
 	if (fd == -1) {
 		return -1;
 	}
