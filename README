@@ -1,0 +1,12 @@
+This software is a very simple listening proxy server.  Intended to have
+minimal external dependancies and be compilable on Windows with open
+source compilers (At the time of writing, this was the LCC compiler)
+
+In 1998, accessing the internet from a corporate network was often a much more
+convoluted technical setup than later.  The environment that this was written
+for was using the Microsoft Proxy Server to shim Winsock library calls and
+tunnel all internet access to the Server.  This made it hard for non Windows
+operating systems to access the internet (as they have no Winsock, let alone
+the custom binary version of winsock that was needed for this special tunnel).
+The (hacky) solution was to run this proxy program on a Windows machine and
+use that as a static port proxy for the Unix systems.
